@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>h5ad Viewer</title>
+<style>
+  :root {
+    --bg:       #1e1e1e;
+    --surface:  #252526;
+    --surface2: #2d2d2d;
+    --border:   #3c3c3c;
+    --text:     #ffffff;
+    --text-dim: #aaaaaa;
+    --radius:   4px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    padding: 16px;
+    min-height: 100vh;
+  }
+
+  /* Header */
+  #header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 20px; flex-wrap: wrap;
+  }
+  #header h1 { font-size: 14px; font-weight: 600; color: #fff; }
+  .badge {
+    border-radius: var(--radius); padding: 2px 8px;
+    font-size: 11px; font-weight: 500;
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim);
+  }
+  .norm-raw     { background:#1a3a1a; border-color:#3a6a3a; color:#6fcf6f; }
+  .norm-log     { background:#1a2a3a; border-color:#3a5a7a; color:#7ab0e0; }
+  .norm-libsize { background:#2a2a1a; border-color:#6a6a3a; color:#d4d47a; }
+  .norm-scaled  { background:#3a1a1a; border-color:#7a3a3a; color:#e07a7a; }
+
+  #loading { color: var(--text-dim); font-style: italic; padding: 40px 0; text-align: center; }
+  #error-box {
+    background: #3a1a1a; border: 1px solid #f44747;
+    border-radius: var(--radius); padding: 12px; color: #f44747; display: none;
+  }
+
+  #main { display: flex; flex-direction: column; gap: 24px; }
+
+  .section-title {
+    font-size: 11px; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
+  }
+
+  /* Diagram */
+  #diagram-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 16px 16px;
+    overflow-x: auto;
+  }
+  svg#adata-diagram { display: block; }
+
+  .d-rect { cursor: pointer; transition: filter 0.12s; }
+  .d-rect:hover  { filter: brightness(1.25); }
+  .d-rect.active { filter: brightness(1.4); stroke-width: 2.5 !important; }
+
+  /* Chips */
+  #chips-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 3px 10px; font-size: 11px;
+    color: var(--text-dim); cursor: pointer;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .chip:hover  { border-color: #aaa; color: #fff; }
+  .chip.active { border-color: #fff; color: #fff; background: #333; }
+
+  /* Table */
+  #table-section { display: none; }
+  #table-title { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+  #table-norm-wrap { margin-bottom: 8px; }
+
+  .table-scroll {
+    overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+
+  thead tr { background: var(--surface2); }
+  thead th {
+    padding: 6px 10px 8px; text-align: left;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    white-space: nowrap; vertical-align: top; min-width: 110px;
+  }
+  thead th:last-child { border-right: none; }
+  .th-name   { display: block; font-size: 12px; font-weight: 600; color: #fff; margin-bottom: 2px; }
+  .th-dtype  { display: inline-block; font-size: 10px; color: var(--text-dim);
+               background: #333; border-radius: 3px; padding: 0 4px; margin-bottom: 4px; }
+  .th-chart  { display: block; margin-bottom: 3px; }
+  .th-stats  { display: block; font-size: 10px; color: var(--text-dim); white-space: normal; line-height: 1.4; }
+  .th-topval { display: block; font-size: 10px; color: #ce9178; white-space: normal; line-height: 1.5; margin-top: 1px; }
+
+  .mini-bg   { fill: #3a3a3a; }
+  .mini-num  { fill: #4899d4; }
+  .mini-cat  { fill: #4fba6f; }
+  .mini-mean { stroke: #efc41c; stroke-width: 1.5; }
+
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:hover { background: var(--surface2); }
+  tbody td {
+    padding: 4px 10px; white-space: nowrap;
+    max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+    color: var(--text); border-right: 1px solid #2a2a2a; font-size: 12px;
+  }
+  tbody td:last-child { border-right: none; }
+  .null-cell { color: #555; font-style: italic; }
+  #table-meta { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div id="loading">Loading h5ad file…</div>
+<div id="error-box"></div>
+
+<div id="main" style="display:none">
+  <div id="header">
+    <h1 id="file-title">h5ad Viewer</h1>
+    <span id="shape-badge" class="badge"></span>
+    <span id="norm-badge"  class="badge" title=""></span>
+    <span id="raw-badge"   class="badge" style="display:none">raw slot present</span>
+  </div>
+
+  <div id="diagram-section">
+    <div class="section-title">AnnData Structure</div>
+    <div id="diagram-container">
+      <svg id="adata-diagram"></svg>
+    </div>
+    <div id="chips-row"></div>
+  </div>
+
+  <div id="table-section">
+    <div class="section-title">Preview</div>
+    <div id="table-title"></div>
+    <div id="table-norm-wrap"></div>
+    <div class="table-scroll">
+      <table>
+        <thead id="preview-thead"></thead>
+        <tbody id="preview-tbody"></tbody>
+      </table>
+    </div>
+    <div id="table-meta"></div>
+  </div>
+</div>
+
+<script>
+const vscode = (typeof acquireVsCodeApi !== 'undefined')
+  ? acquireVsCodeApi()
+  : { postMessage: (m) => console.log('[mock]', m) };
+
+let DATA = null;
+
+// Support injected real data (from make_preview.py)
+/* __INJECT_DATA__ */
+/* __INJECT_SLOTS__ */
+if (window.__injectedData) {
+  window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('loading').style.display = 'none';
+    DATA = window.__injectedData;
+    render(DATA);
+  });
+}
+
+window.addEventListener('message', event => {
+  const msg = event.data;
+  if (msg.type === 'init') {
+    document.getElementById('loading').style.display = 'none';
+    if (msg.error) { showError(msg.error); return; }
+    DATA = msg.data;
+    render(DATA);
+  } else if (msg.type === 'slot_data') {
+    renderTable(msg.slot, msg.key, msg.data);
+  } else if (msg.type === 'error') {
+    showError(msg.error);
+  }
+});
+
+function showError(msg) {
+  const b = document.getElementById('error-box');
+  b.textContent = 'Error: ' + msg;
+  b.style.display = 'block';
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function render(d) {
+  document.getElementById('main').style.display = 'flex';
+  document.getElementById('shape-badge').textContent =
+    `${d.shape.n_obs.toLocaleString()} cells × ${d.shape.n_vars.toLocaleString()} genes`;
+  const nb = document.getElementById('norm-badge');
+  nb.textContent = 'X: ' + d.X_normalization.label;
+  nb.title = d.X_normalization.detail;
+  nb.className = 'badge ' + normClass(d.X_normalization.label);
+  if (d.has_raw) document.getElementById('raw-badge').style.display = 'inline';
+  drawDiagram(d);
+  renderChips(d);
+}
+
+function normClass(l) {
+  if (l.includes('raw'))     return 'norm-raw';
+  if (l.includes('log'))     return 'norm-log';
+  if (l.includes('library')) return 'norm-libsize';
+  if (l.includes('scaled'))  return 'norm-scaled';
+  return '';
+}
+
+// ── Diagram ──────────────────────────────────────────────────────────────────
+//
+// Proportions from reference SVG (viewBox 200×195):
+//   Front-face widths:  obsp=64.91  obsm=29.00  X/layers=53.44  obs=29.00
+//   Front-face heights: main=64.88  var=24.43  varm=24.43  varp=53.52
+//   obsp≈square, varp≈square
+//
+// X is forced square (W_x = H_main). Scale factor = H_main/64.88 ≈ 1.54
+//
+// Layout:
+//   [var bar]  ← above X only, same width as X
+//   [obsp] [obsm] [X/layers] [obs]
+//                 [varm]
+//                 [varp]
+//
+function drawDiagram(d) {
+  const svg = document.getElementById('adata-diagram');
+
+  // Dimensions
+  const SC  = 1.54;              // scale from SVG units → px
+  const S   = 3;                 // stack layers per block
+  const SO  = 4;                 // stack offset (upper-left, px)
+  const SE  = SO * (S - 1);      // shadow extent = 8px
+
+  const H   = 100;               // main row height (X height → square)
+  const Wx  = H;                 // X width = H (square)
+  const Wop = Math.round(64.91 * SC * (H / (64.88 * SC)));  // = H (obsp≈square)
+  const Wom = Math.round(29.00 / 64.88 * H);  // 45
+  const Wo  = Math.round(29.00 / 64.88 * H);  // 45
+  const Hv  = Math.round(24.43 / 64.88 * H);  // 38  (var)
+  const Hva = Math.round(24.43 / 64.88 * H);  // 38  (varm)
+  const Hvp = Math.round(53.52 / 64.88 * H);  // 82  (varp ≈ square scaled)
+
+  const G   = Math.round(6.18 * SC);  // horizontal gap ≈ 10
+  const GV  = Math.round(8.78 * SC);  // vertical gap var→main ≈ 14
+  const GVm = Math.round(10.9 * SC);  // vertical gap main→varm ≈ 17
+  const GVp = Math.round(5.23 * SC);  // vertical gap varm→varp ≈ 8
+  const TH  = 28;               // text area height below each block
+  const PAD = 18;
+
+  // x positions (front face left edge)
+  const xOp  = PAD + SE;
+  const xOm  = xOp + Wop + G + SE;
+  const xX   = xOm + Wom + G + SE;
+  const xObs = xX  + Wx  + G;         // obs: no stack
+
+  // y positions (front face top edge)
+  const yVar   = PAD;
+  const yVarT  = yVar + Hv  + 14;
+  const yMain  = yVarT + TH + GV;
+  const yMainT = yMain + H   + 14;
+  const yVarm  = yMainT + TH + GVm + SE;
+  const yVarmT = yVarm  + Hva + 14;
+  const yVarp  = yVarmT + TH + GVp + SE;
+  const yVarpT = yVarp  + Hvp + 14;
+
+  const totalW = xObs + Wo + PAD;
+  const totalH = yVarpT + TH + PAD;
+
+  svg.setAttribute('width',  totalW);
+  svg.setAttribute('height', totalH);
+
+  // center-x of each column (for below-text)
+  const cxOp  = xOp  + Wop / 2;
+  const cxOm  = xOm  + Wom / 2;
+  const cxX   = xX   + Wx  / 2;
+  const cxObs = xObs + Wo  / 2;
+
+  let html = '';
+
+  // ── var bar ──────────────────────────────────────────────────────────────
+  html += block(xX, yVar, Wx, Hv, 1, 0, '#1a4a6a', '#2c96c0', 'rect-var', 'var', 'var', null);
+  html += subText(cxX, yVarT, [
+    `${d.shape.n_vars.toLocaleString()} genes`,
+    `${nCols(d.var)} columns`,
+  ]);
+
+  // ── obsp ─────────────────────────────────────────────────────────────────
+  const obspEmpty = Object.keys(d.obsp).length === 0;
+  html += block(xOp, yMain, Wop, H, S, SO, '#6b1212', '#f15c5a', 'rect-obsp', 'obsp', 'obsp', null, obspEmpty);
+  html += subText(cxOp, yMainT, slotKeys(d.obsp, 'obsp'));
+
+  // ── obsm ─────────────────────────────────────────────────────────────────
+  const obsmEmpty = Object.keys(d.obsm).length === 0;
+  html += block(xOm, yMain, Wom, H, S, SO, '#7a3a00', '#ef9021', 'rect-obsm', 'obsm', 'obsm', null, obsmEmpty);
+  html += subText(cxOm, yMainT, obsmLines(d));
+
+  // ── X / layers ───────────────────────────────────────────────────────────
+  const layerKeys = Object.keys(d.layers);
+  if (layerKeys.length === 0) {
+    html += block(xX, yMain, Wx, H, S, SO, '#1e4a1e', '#4fba6f', 'rect-X', 'X', 'X', null);
+  } else {
+    const nL  = layerKeys.length;
+    const segH = Math.max(20, Math.floor((H - G * nL) / (nL + 1)));
+    html += block(xX, yMain, Wx, segH, 1, 0, '#1e4a1e', '#4fba6f', 'rect-X', 'X', 'X', null);
+    layerKeys.forEach((key, i) => {
+      const ly = yMain + segH + G + i * (segH + G);
+      html += block(xX, ly, Wx, segH, 1, 0, '#163a16', '#3c8b53',
+        `rect-layer-${i}`, key, 'layers', key);
+    });
+  }
+  html += subText(cxX, yMainT, xLines(d));
+
+  // ── obs ──────────────────────────────────────────────────────────────────
+  html += block(xObs, yMain, Wo, H, 1, 0, '#6b5000', '#efc41c', 'rect-obs', 'obs', 'obs', null);
+  html += subText(cxObs, yMainT, [
+    `${d.shape.n_obs.toLocaleString()} cells`,
+    `${nCols(d.obs)} columns`,
+  ]);
+
+  // ── varm ─────────────────────────────────────────────────────────────────
+  const varmEmpty = Object.keys(d.varm).length === 0;
+  html += block(xX, yVarm, Wx, Hva, S, SO, '#0d2535', '#194c61', 'rect-varm', 'varm', 'varm', null, varmEmpty);
+  html += subText(cxX, yVarmT, matrixKeys(d.varm));
+
+  // ── varp ─────────────────────────────────────────────────────────────────
+  const varpEmpty = Object.keys(d.varp).length === 0;
+  html += block(xX, yVarp, Wx, Hvp, S, SO, '#3a1245', '#965ba5', 'rect-varp', 'varp', 'varp', null, varpEmpty);
+  html += subText(cxX, yVarpT, slotKeys(d.varp, 'varp'));
+
+  svg.innerHTML = html;
+
+  svg.querySelectorAll('.d-rect').forEach(el => {
+    el.addEventListener('click', () => {
+      requestSlot(el.dataset.slot, el.dataset.key || null);
+      svg.querySelectorAll('.d-rect').forEach(r => r.classList.remove('active'));
+      el.classList.add('active');
+    });
+  });
+}
+
+// Draw one block: S-1 shadow rects + front face + white label
+// empty=true → transparent/dashed (slot has no data); empty=false → opaque
+function block(x, y, w, h, S, SO, dark, accent, id, label, slot, key, empty=false) {
+  let out = '';
+  const ka = key ? `data-key="${esc(key)}"` : '';
+  if (!empty) {
+    for (let i = S - 1; i >= 1; i--) {
+      out += `<rect x="${x - i*SO}" y="${y - i*SO}" width="${w}" height="${h}" rx="4"
+        fill="${dark}" stroke="${accent}" stroke-width="1" opacity="0.45" pointer-events="none"/>`;
+    }
+  }
+  const fillCol   = empty ? '#1e1e1e' : dark;
+  const strokeW   = empty ? '1'       : '2';
+  const dash      = empty ? 'stroke-dasharray="5 3"' : '';
+  const rectOpac  = empty ? 'opacity="0.4"'          : '';
+  out += `<rect class="d-rect" id="${esc(id)}" data-slot="${slot}" ${ka}
+    x="${x}" y="${y}" width="${w}" height="${h}" rx="4"
+    fill="${fillCol}" stroke="${accent}" stroke-width="${strokeW}" ${dash} ${rectOpac}/>`;
+  const textOpac = empty ? 'opacity="0.35"' : '';
+  out += `<text x="${x + w/2}" y="${y + h/2}" text-anchor="middle" dominant-baseline="middle"
+    font-size="12" font-weight="700" fill="#ffffff" ${textOpac} pointer-events="none">${esc(label)}</text>`;
+  return out;
+}
+
+// White text lines below a block
+function subText(cx, y0, lines) {
+  return lines.filter(Boolean).map((l, i) =>
+    `<text x="${cx}" y="${y0 + i * 13}" text-anchor="middle"
+     font-size="10" fill="#ffffff" opacity="0.85">${esc(l)}</text>`
+  ).join('');
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Info-line helpers ────────────────────────────────────────────────────────
+function nCols(dfSummary) { return Object.keys(dfSummary.summaries || {}).length; }
+
+function xLines(d) {
+  const lines = [d.X_normalization.label];
+  Object.entries(d.layers).forEach(([k, v]) => lines.push(`${k}: ${v.normalization.label}`));
+  return lines;
+}
+
+function obsmLines(d) {
+  const keys = Object.keys(d.obsm);
+  if (!keys.length) return ['(empty)'];
+  return keys.slice(0, 3).map(k => `${k}  ${d.obsm[k].shape.join('×')}`);
+}
+
+function matrixKeys(obj) {
+  const keys = Object.keys(obj);
+  if (!keys.length) return ['(empty)'];
+  return keys.slice(0, 3).map(k => `${k}  ${obj[k].shape.join('×')}`);
+}
+
+function slotKeys(obj, name) {
+  const keys = Object.keys(obj);
+  return keys.length ? keys.slice(0, 3) : ['(empty)'];
+}
+
+// ── Chips (uns / extra obsp / varp keys) ─────────────────────────────────────
+function renderChips(d) {
+  const row = document.getElementById('chips-row');
+  row.innerHTML = '';
+  const add = (label, slot, key) => {
+    const c = document.createElement('span');
+    c.className = 'chip';
+    c.textContent = label;
+    c.addEventListener('click', () => {
+      row.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      requestSlot(slot, key);
+    });
+    row.appendChild(c);
+  };
+  Object.keys(d.obsp).forEach(k  => add(`obsp: ${k}`,  'obsp', k));
+  Object.keys(d.varp).forEach(k  => add(`varp: ${k}`,  'varp', k));
+  d.uns_keys.forEach(k            => add(`uns: ${k}`,   'uns',  k));
+}
+
+// ── Request slot ─────────────────────────────────────────────────────────────
+function requestSlot(slot, key) {
+  if (slot === 'obs') { renderTable('obs', null, DATA.obs); return; }
+  if (slot === 'var') { renderTable('var', null, DATA.var); return; }
+  // Pre-fetched slots embedded by make_preview.py
+  if (window.__injectedSlots) {
+    const k = key ? `${slot}/${key}` : slot;
+    if (window.__injectedSlots[k]) { renderTable(slot, key, window.__injectedSlots[k]); return; }
+  }
+  if (window.__mockMode) { renderTable(slot, key, mockSlotData(slot, key)); return; }
+  // VSCode extension path
+  vscode.postMessage({ type: 'fetch_slot', slot, key });
+}
+
+function mockSlotData(slot, key) {
+  const genes = ['ACTB','GAPDH','COL1A1','TP53','BRCA1','MYC','TNF','IL6','VEGFA','EGFR'];
+  // X and any layer → same gene-expression matrix format
+  if (slot === 'X' || slot === 'layers') {
+    const cols = ['index', ...genes];
+    const rows = Array.from({length:10}, (_,i) => {
+      const r = { index: `AAACCC${String(i).padStart(6,'0')}-1` };
+      genes.forEach(g => { r[g] = String(Math.floor(Math.random()*200)); });
+      return r;
+    });
+    const summaries = { index: { type:'categorical', dtype:'object', null_count:0, nunique:10, top_values:[] } };
+    genes.forEach(g => { summaries[g] = { type:'numeric', dtype:'int64', null_count:0, min:0, max:200, mean:40 }; });
+    return { columns: cols, rows, summaries };
+  }
+  // Embedding matrices (obsm, varm) → float dims
+  if (slot === 'obsm' || slot === 'varm') {
+    const nDims = slot === 'obsm' ? 2 : 50;
+    const cols = ['index', ...Array.from({length: Math.min(nDims,6)}, (_,i) => `dim_${i}`)];
+    const rows = Array.from({length:5}, (_,i) => {
+      const r = { index: `row_${i}` };
+      cols.slice(1).forEach(c => { r[c] = (Math.random()*2-1).toFixed(4); });
+      return r;
+    });
+    const summaries = { index: { type:'categorical', dtype:'object', null_count:0, nunique:5, top_values:[] } };
+    cols.slice(1).forEach(c => { summaries[c] = { type:'numeric', dtype:'float32', null_count:0, min:-2.1, max:2.1, mean:0.0 }; });
+    return { columns: cols, rows, summaries };
+  }
+  // Sparse square matrices (obsp, varp) → show first few rows/cols
+  const cols = ['index', 'cell_0','cell_1','cell_2','cell_3'];
+  const rows = Array.from({length:5}, (_,i) => {
+    const r = { index: `cell_${i}` };
+    cols.slice(1).forEach((c,j) => { r[c] = i===j ? '1.0' : (Math.random()<0.1 ? (Math.random()).toFixed(3) : '0'); });
+    return r;
+  });
+  const summaries = { index: { type:'categorical', dtype:'object', null_count:0, nunique:5, top_values:[] } };
+  cols.slice(1).forEach(c => { summaries[c] = { type:'numeric', dtype:'float32', null_count:0, min:0, max:1, mean:0.05 }; });
+  return { columns: cols, rows, summaries };
+}
+
+// ── Table (DataWrangler style) ────────────────────────────────────────────────
+function renderTable(slot, key, data) {
+  const section = document.getElementById('table-section');
+  section.style.display = 'block';
+  document.getElementById('table-title').textContent = key ? `${slot}['${key}']` : slot;
+
+  const nw = document.getElementById('table-norm-wrap');
+  nw.innerHTML = '';
+  if (slot === 'layers' && key && DATA.layers[key]) {
+    const n = DATA.layers[key].normalization;
+    const b = document.createElement('span');
+    b.className = 'badge ' + normClass(n.label);
+    b.textContent = n.label; b.title = n.detail;
+    nw.appendChild(b);
+  }
+
+  if (data.error || !data.columns) {
+    document.getElementById('preview-thead').innerHTML = '';
+    document.getElementById('preview-tbody').innerHTML =
+      `<tr><td style="color:#f44747;padding:10px">${esc(data.error || 'No tabular data for this slot.')}</td></tr>`;
+    document.getElementById('table-meta').textContent = '';
+    return;
+  }
+
+  // Header
+  const thead = document.getElementById('preview-thead');
+  thead.innerHTML = '';
+  const tr = document.createElement('tr');
+  data.columns.forEach(col => {
+    const th = document.createElement('th');
+    const s  = data.summaries[col];
+    let inner = `<span class="th-name">${esc(col)}</span>`;
+    if (s) {
+      inner += `<span class="th-dtype">${esc(s.dtype)}</span>`;
+      if (s.type === 'numeric') {
+        inner += `<span class="th-chart">${numChart(s)}</span>`;
+        const parts = [];
+        if (s.min  != null) parts.push(`min ${fmt(s.min)}`);
+        if (s.mean != null) parts.push(`mean ${fmt(s.mean)}`);
+        if (s.max  != null) parts.push(`max ${fmt(s.max)}`);
+        if (s.null_count > 0) parts.push(`${s.null_count} nulls`);
+        inner += `<span class="th-stats">${parts.join(' · ')}</span>`;
+      } else if (s.type === 'categorical') {
+        inner += `<span class="th-chart">${catChart(s)}</span>`;
+        inner += `<span class="th-stats">${s.nunique} unique · ${s.null_count} nulls</span>`;
+        if (s.top_values && s.top_values.length) {
+          inner += `<span class="th-topval">${
+            s.top_values.slice(0,3).map(v => `${esc(v.value)} (${v.count})`).join(', ')
+          }</span>`;
+        }
+      } else {
+        inner += `<span class="th-stats">${esc(s.dtype)}${s.nunique != null ? ' · '+s.nunique+' unique' : ''}</span>`;
+      }
+    }
+    th.innerHTML = inner;
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+
+  // Body
+  const tbody = document.getElementById('preview-tbody');
+  tbody.innerHTML = '';
+  data.rows.forEach(row => {
+    const tr2 = document.createElement('tr');
+    data.columns.forEach(col => {
+      const td  = document.createElement('td');
+      const val = row[col];
+      if (val === null || val === undefined) {
+        td.textContent = 'null'; td.className = 'null-cell';
+      } else {
+        td.textContent = val; td.title = String(val);
+      }
+      tr2.appendChild(td);
+    });
+    tbody.appendChild(tr2);
+  });
+
+  document.getElementById('table-meta').textContent =
+    `Showing first ${data.rows.length} rows`;
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Mini charts
+function numChart(s) {
+  const W = 100, H = 10;
+  if (s.min == null || s.max == null) return '';
+  const range   = s.max - s.min || 1;
+  const meanPct = s.mean != null ? Math.max(0, Math.min(1, (s.mean - s.min) / range)) : null;
+  const mx      = meanPct != null ? Math.round(meanPct * W) : null;
+  return `<svg width="${W}" height="${H}" style="display:block">
+    <rect class="mini-bg"  x="0" y="3" width="${W}" height="4" rx="2"/>
+    <rect class="mini-num" x="0" y="3" width="${W}" height="4" rx="2"/>
+    ${mx != null ? `<line class="mini-mean" x1="${mx}" y1="0" x2="${mx}" y2="${H}"/>` : ''}
+  </svg>`;
+}
+
+function catChart(s) {
+  if (!s.top_values || !s.top_values.length) return '';
+  const W = 100, BH = 6, G = 3;
+  const max = s.top_values[0].count;
+  const bars = s.top_values.slice(0, 4);
+  let svg = `<svg width="${W}" height="${bars.length * (BH+G)}" style="display:block">`;
+  bars.forEach((v, i) => {
+    const bw = Math.max(2, Math.round(v.count / max * W));
+    const y  = i * (BH + G);
+    svg += `<rect class="mini-bg"  x="0" y="${y}" width="${W}"  height="${BH}" rx="2"/>`;
+    svg += `<rect class="mini-cat" x="0" y="${y}" width="${bw}" height="${BH}" rx="2"/>`;
+  });
+  return svg + '</svg>';
+}
+
+function fmt(v) {
+  if (v == null) return 'N/A';
+  if (Math.abs(v) >= 10000 || (Math.abs(v) < 0.001 && v !== 0)) return v.toExponential(2);
+  return parseFloat(v.toFixed(3)).toString();
+}
+
+// ── Standalone browser test (?mock) ──────────────────────────────────────────
+if (new URLSearchParams(window.location.search).has('mock')) {
+  const types   = ['Neuron', 'Astrocyte', 'Microglia', 'OPC', 'Endothelial'];
+  const samples = ['S1', 'S2', 'S3'];
+  const MOCK = {
+    shape: { n_obs: 108123, n_vars: 21674 },
+    X_normalization: { label: 'raw counts', detail: 'row sum range: 8627–31056' },
+    has_raw: false,
+    obs: {
+      columns: ['index','cell_type','n_genes','sample','pct_mito'],
+      rows: Array.from({length:10}, (_,i) => ({
+        index: `AAACCC${i}`, cell_type: types[i%5],
+        n_genes: String(500+i*47), sample: samples[i%3],
+        pct_mito: (Math.random()*5).toFixed(3),
+      })),
+      summaries: {
+        cell_type: { type:'categorical', dtype:'category', null_count:0, nunique:5,
+          top_values: types.map((t,i)=>({ value:t, count:21000-i*500 })) },
+        n_genes:   { type:'numeric', dtype:'int64', null_count:0, min:312, max:6820, mean:2341 },
+        sample:    { type:'categorical', dtype:'object', null_count:0, nunique:3,
+          top_values: samples.map((s,i)=>({ value:s, count:36000-i*1000 })) },
+        pct_mito:  { type:'numeric', dtype:'float64', null_count:0, min:0, max:4.98, mean:1.2 },
+      }
+    },
+    var: {
+      columns: ['index','gene_name','highly_variable','mean_counts'],
+      rows: Array.from({length:10}, (_,i) => ({
+        index: `ENSRNOG${String(i).padStart(11,'0')}`,
+        gene_name: ['ACTB','GAPDH','COL1A1','TP53','BRCA1','MYC','TNF','IL6','VEGFA','EGFR'][i],
+        highly_variable: i < 3 ? 'True' : 'False',
+        mean_counts: (Math.random()*50).toFixed(3),
+      })),
+      summaries: {
+        index:           { type:'categorical', dtype:'object', null_count:0, nunique:21674,
+          top_values: [{value:'ENSRNOG00000000000',count:1}] },
+        gene_name:       { type:'categorical', dtype:'object', null_count:0, nunique:21674,
+          top_values: [{value:'ACTB',count:1}] },
+        highly_variable: { type:'categorical', dtype:'bool',   null_count:0, nunique:2,
+          top_values: [{value:'True',count:3000},{value:'False',count:18674}] },
+        mean_counts:     { type:'numeric', dtype:'float64', null_count:0, min:0.01, max:142.3, mean:8.7 },
+      }
+    },
+    obsm:     { X_umap:{shape:[108123,2]}, X_pca:{shape:[108123,50]} },
+    varm:     { PCs:{shape:[21674,50]} },
+    layers:   { counts:{shape:[108123,21674], normalization:{label:'raw counts',detail:'row sum range: 800–30k'}} },
+    obsp:     { connectivities:{shape:[108123,108123]} },
+    varp:     {},
+    uns_keys: ['neighbors','pca','umap'],
+  };
+  document.getElementById('loading').style.display = 'none';
+  window.__mockMode = true;
+  DATA = MOCK;
+  render(MOCK);
+}
+</script>
+</body>
+</html>

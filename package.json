@@ -1,0 +1,41 @@
+{
+  "name": "h5ad-viewer",
+  "displayName": "h5ad Viewer",
+  "description": "Interactive viewer for AnnData .h5ad files with structure diagram, table preview, and UMAP.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Data Science", "Visualization"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "h5adViewer.editor",
+        "displayName": "h5ad Viewer",
+        "selector": [{ "filenamePattern": "*.h5ad" }],
+        "priority": "default"
+      }
+    ],
+    "configuration": {
+      "title": "h5ad Viewer",
+      "properties": {
+        "h5adViewer.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Python executable with anndata installed. Leave empty to use the active Python interpreter from the Python extension."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
